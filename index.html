@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rankify - 세상의 모든 순위 & 비교 플랫폼</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <!-- Ambient Background Glows -->
+  <div class="bg-glow-1"></div>
+  <div class="bg-glow-2"></div>
+
+  <div class="app-container">
+    <!-- Top Navigation Bar -->
+    <header class="glass-panel">
+      <div class="logo-container">
+        <div class="logo-icon">
+          <i class="fa-solid fa-ranking-stars"></i>
+        </div>
+        <div class="logo-text">Rankify</div>
+      </div>
+      <nav class="nav-tabs">
+        <button class="tab-btn active" id="tab-explore" onclick="switchView('explore')">
+          <i class="fa-solid fa-compass"></i> 탐색하기
+        </button>
+        <button class="tab-btn" id="tab-custom" onclick="switchView('custom')">
+          <i class="fa-solid fa-sliders"></i> 나만의 맞춤 순위
+        </button>
+        <button class="tab-btn" id="tab-community" onclick="switchView('community')">
+          <i class="fa-solid fa-users"></i> 커뮤니티 투표 순위
+        </button>
+    </header>
+
+    <!-- Scope Selector (Global vs Korea vs Apartments vs Escape) -->
+    <div class="scope-selector glass-panel">
+      <button class="scope-btn active" id="scope-global" onclick="switchScope('global')">
+        <i class="fa-solid fa-globe"></i> 글로벌 국가 순위
+      </button>
+      <button class="scope-btn" id="scope-korea" onclick="switchScope('korea')">
+        <i class="fa-solid fa-map-location-dot"></i> 대한민국 지역 순위
+      </button>
+      <button class="scope-btn" id="scope-apartment" onclick="switchScope('apartment')">
+        <i class="fa-solid fa-building"></i> 대한민국 아파트 순위
+      </button>
+      <button class="scope-btn" id="scope-escape" onclick="switchScope('escape')">
+        <i class="fa-solid fa-umbrella-beach"></i> 여름 피서지 순위
+      </button>
+      <button class="scope-btn" id="scope-car" onclick="switchScope('car')">
+        <i class="fa-solid fa-car"></i> 국내 판매 차량
+      </button>
+    </div>
+
+    <!-- Main View Section -->
+    <main class="main-layout" id="view-explore-layout">
+      <!-- Left Sidebar: Controls -->
+      <aside class="sidebar glass-panel" id="sidebar-controls">
+        <div id="category-sidebar-section">
+          <h3 class="sidebar-title">
+            <i class="fa-solid fa-list-ul"></i> 순위 대주제 선택
+          </h3>
+          <div class="category-tags" style="flex-direction: column; gap: 10px; margin-top: 15px; overflow-x: visible;">
+            <button class="category-tag active" id="cat-geopolitics" onclick="selectCategory('geopolitics')">
+              <i class="fa-solid fa-globe"></i> <span id="tag-name-geopolitics">지정학 & 영향력 순위</span>
+            </button>
+            <button class="category-tag" id="cat-korean-liveability" onclick="selectCategory('korean-liveability')">
+              <i class="fa-solid fa-house-chimney-user"></i> <span id="tag-name-liveability">한국인 살기 좋은 나라</span>
+            </button>
+            <button class="category-tag" id="cat-climate" onclick="selectCategory('climate')">
+              <i class="fa-solid fa-cloud-sun"></i> <span id="tag-name-climate">기후 & 환경 쾌적도 순위</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Custom Weighting Panel (Hidden in default view, shown in Custom Weighting view) -->
+        <div id="weight-sliders-section" style="display: none;">
+          <h3 class="sidebar-title">
+            <i class="fa-solid fa-scale-balanced"></i> 가중치 미세 조정 (0-5)
+          </h3>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+            슬라이더를 조정하여 중요도에 따른 순위를 실시간으로 재계산합니다.
+          </p>
+          <div class="slider-group" style="margin-top: 20px;">
+            <div class="slider-item">
+              <div class="slider-label">
+                <span id="slider-label-geopolitics">지정학적 영향력</span>
+                <span class="slider-weight-value" id="weight-val-geopolitics">1</span>
+              </div>
+              <input type="range" class="slider-input" id="slider-geopolitics" min="0" max="5" step="0.5" value="1" oninput="updateWeight('geopolitics', this.value)">
+            </div>
+            <div class="slider-item">
+              <div class="slider-label">
+                <span id="slider-label-climate">기후 쾌적성</span>
+                <span class="slider-weight-value" id="weight-val-climate">1</span>
+              </div>
+              <input type="range" class="slider-input" id="slider-climate" min="0" max="5" step="0.5" value="1" oninput="updateWeight('climate', this.value)">
+            </div>
+            <div class="slider-item">
+              <div class="slider-label">
+                <span id="slider-label-liveability">한국인 생활 인프라</span>
+                <span class="slider-weight-value" id="weight-val-liveability">1</span>
+              </div>
+              <input type="range" class="slider-input" id="slider-liveability" min="0" max="5" step="0.5" value="1" oninput="updateWeight('liveability', this.value)">
+            </div>
+            <button class="reset-btn" onclick="resetWeights()" style="margin-top: 10px;">
+              <i class="fa-solid fa-rotate-left"></i> 기본 가중치로 리셋
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Right Main: Rankings List -->
+      <section class="rankings-section">
+        <!-- Search and filters -->
+        <div class="filter-search-container glass-panel">
+          <div class="search-wrapper">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="text" class="search-input" id="search-input" placeholder="국가명 또는 언어 검색..." oninput="handleSearch(this.value)">
+          </div>
+          <div style="font-size: 13px; color: var(--text-secondary);" id="list-description-text">
+            세계 주요 20개국의 종합 국력, GDP, 군사력 등을 기반으로 한 순위입니다.
+          </div>
+        </div>
+
+        <!-- Rankings Header -->
+        <div class="list-header">
+          <div style="text-align: center;">순위</div>
+          <div id="col-header-name">국가명</div>
+          <div class="hide-mobile" id="col-header-metric" style="text-align: right;">주요 지표</div>
+          <div style="text-align: center;">종합 점수</div>
+          <div style="text-align: center;">상세</div>
+        </div>
+
+        <!-- Dynamic List -->
+        <div class="rankings-list" id="rankings-list">
+          <!-- Dynamically populated cards will go here -->
+        </div>
+
+        <!-- Empty state -->
+        <div class="glass-panel empty-state" id="search-empty-state" style="display: none;">
+          <div class="empty-icon">
+            <i class="fa-solid fa-circle-question"></i>
+          </div>
+          <h3>검색 결과가 없습니다</h3>
+          <p>다른 국가명 또는 키워드를 입력해 보세요.</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- Side-by-Side Compare Screen (Hidden by default) -->
+    <main class="compare-view-container" id="view-compare-layout" style="display: none;">
+      <button class="back-btn" onclick="exitCompareMode()">
+        <i class="fa-solid fa-arrow-left"></i> 탐색 페이지로 돌아가기
+      </button>
+      <div class="glass-panel" style="padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <h2 id="compare-title-text" style="font-family: var(--font-title); font-size: 24px; font-weight: 800;">
+            <i class="fa-solid fa-chart-columns" style="color: var(--primary-solid); margin-right: 8px;"></i>국가 정밀 비교 센터
+          </h2>
+          <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">지정학, 기후, 한국인 정착 지표를 1:1로 한눈에 비교해 보세요.</p>
+        </div>
+      </div>
+      <div class="compare-grid" id="compare-grid">
+        <!-- Dynamically populated compare cards -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Bottom Floating Compare Bar -->
+  <div class="glass-panel compare-sticky-bar" id="compare-sticky-bar">
+    <div class="compare-items-list" id="compare-pills-container">
+      <!-- Selected country pills will go here -->
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <button class="action-btn" onclick="clearComparison()" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: var(--danger-solid);">
+        전체 삭제
+      </button>
+      <button class="compare-trigger-btn" onclick="enterCompareMode()">
+        <span id="compare-btn-text">비교하기 (2)</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
