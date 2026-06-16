@@ -31,6 +31,10 @@
         <button class="tab-btn" id="tab-community" onclick="switchView('community')">
           <i class="fa-solid fa-users"></i> 커뮤니티 투표 순위
         </button>
+        <button class="tab-btn" id="btn-api-config" onclick="openApiModal()" style="border-color: rgba(255, 255, 255, 0.1);">
+          <i class="fa-solid fa-key" style="color: var(--warning-solid)"></i> API 설정
+        </button>
+      </nav>
     </header>
 
     <!-- Scope Selector (Global vs Korea vs Apartments vs Escape) -->
@@ -182,7 +186,34 @@
     </div>
   </div>
 
+  <!-- API Key Settings Modal -->
+  <div class="modal-overlay" id="api-modal" style="display: none;">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-key" style="color: var(--primary-solid); margin-right: 8px;"></i>국토부 실거래가 API 설정</h3>
+        <button class="close-btn" onclick="closeApiModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 15px; line-height: 1.5;">
+          공공데이터포털(data.go.kr)에서 발급받은 <strong>'국토교통부 아파트매매 실거래 상세 자료'</strong> API의 일반 인증키(Service Key)를 입력해주세요. 입력된 키는 브라우저 로컬 저장소에 안전하게 보관됩니다.
+        </p>
+        <div class="input-group" style="margin-bottom: 15px;">
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">인증키 (Service Key)</label>
+          <input type="text" id="api-key-input" placeholder="인증키를 입력해주세요..." style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--panel-border); border-radius: 8px; color: var(--text-primary); font-size: 13px; font-family: monospace;">
+        </div>
+        <div id="api-test-status" style="font-size: 12px; color: var(--warning-solid); margin-bottom: 15px; font-weight: 500;">
+          연동 상태: 미연동 (시뮬레이션 가격 데이터 작동 중)
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button class="action-btn" onclick="testApiKey()" style="background: rgba(255, 255, 255, 0.05); border-color: var(--panel-border); padding: 10px 16px; border-radius: 8px; cursor: pointer; color: var(--text-primary);">연동 테스트</button>
+        <button class="action-btn" onclick="saveApiKey()" style="background: var(--primary-glow); color: #07080d; font-weight: 700; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer;">저장 후 적용</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="data.js"></script>
   <script src="app.js"></script>
 </body>
