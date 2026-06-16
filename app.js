@@ -28,6 +28,8 @@ let weights = {
 let expandedDrawers = new Set();
 let voteHistory = {}; // ID -> 'up' | 'down'
 let previousRanks = {}; // ID -> rank integer (1-based)
+let currentUser = null;
+let authMode = 'login'; // 'login' | 'signup'
 
 // Document Elements
 let rankingsListEl, searchInputEl, listDescriptionEl, compareStickyBarEl, comparePillsContainerEl, compareBtnTextEl, compareGridEl;
@@ -60,6 +62,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   
   // Update compare bar count
   updateCompareStickyBar();
+
+  // Initialize authentication
+  await initAuth();
 });
 
 // Load dataset according to scope (global, korea, apartment, escape)
@@ -1646,3 +1651,180 @@ window.testApiKey = function() {
       statusEl.style.color = 'var(--danger-solid)';
     });
 };
+
+// ==========================================
+// Authentication Logic
+// ==========================================
+async function initAuth() {
+  if (supabaseClient) {
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session) {
+        currentUser = session.user;
+        updateAuthUI(currentUser);
+      }
+      
+      supabaseClient.auth.onAuthStateChange((event, session) => {
+        if (session) {
+          currentUser = session.user;
+        } else {
+          currentUser = null;
+        }
+        updateAuthUI(currentUser);
+      });
+    } catch (err) {
+      console.error('Failed to initialize Supabase Auth:', err);
+    }
+  } else {
+    const mockUserJson = localStorage.getItem('rankify_mock_user');
+    if (mockUserJson) {
+      try {
+        currentUser = JSON.parse(mockUserJson);
+        updateAuthUI(currentUser);
+      } catch (e) {
+        localStorage.removeItem('rankify_mock_user');
+      }
+    }
+  }
+}
+
+window.openAuthModal = function() {
+  document.getElementById('auth-email').value = '';
+  document.getElementById('auth-password').value = '';
+  const errorEl = document.getElementById('auth-error-msg');
+  errorEl.innerText = '';
+  errorEl.style.display = 'none';
+  
+  authMode = 'login';
+  updateAuthModalUI();
+  
+  document.getElementById('auth-modal').style.display = 'flex';
+};
+
+window.closeAuthModal = function() {
+  document.getElementById('auth-modal').style.display = 'none';
+};
+
+window.toggleAuthMode = function(event) {
+  if (event) event.preventDefault();
+  authMode = authMode === 'login' ? 'signup' : 'login';
+  updateAuthModalUI();
+};
+
+function updateAuthModalUI() {
+  const titleEl = document.getElementById('auth-modal-title');
+  const submitEl = document.getElementById('btn-auth-submit');
+  const toggleLinkEl = document.getElementById('auth-toggle-link');
+  const errorEl = document.getElementById('auth-error-msg');
+  
+  errorEl.innerText = '';
+  errorEl.style.display = 'none';
+  
+  if (authMode === 'login') {
+    titleEl.innerHTML = '<i class="fa-solid fa-user"></i> 로그인';
+    submitEl.innerText = '로그인';
+    toggleLinkEl.innerText = '회원가입';
+    toggleLinkEl.parentElement.innerHTML = '계정이 없으신가요? <a href="#" id="auth-toggle-link" onclick="toggleAuthMode(event)" style="color: var(--primary-solid); text-decoration: underline;">회원가입</a>';
+  } else {
+    titleEl.innerHTML = '<i class="fa-solid fa-user-plus"></i> 회원가입';
+    submitEl.innerText = '회원가입';
+    toggleLinkEl.innerText = '로그인';
+    toggleLinkEl.parentElement.innerHTML = '이미 계정이 있으신가요? <a href="#" id="auth-toggle-link" onclick="toggleAuthMode(event)" style="color: var(--primary-solid); text-decoration: underline;">로그인</a>';
+  }
+}
+
+window.submitAuth = async function() {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errorEl = document.getElementById('auth-error-msg');
+  
+  if (!email || !password) {
+    errorEl.innerText = '이메일과 비밀번호를 입력해 주세요.';
+    errorEl.style.display = 'block';
+    return;
+  }
+  
+  if (password.length < 6) {
+    errorEl.innerText = '비밀번호는 최소 6자 이상이어야 합니다.';
+    errorEl.style.display = 'block';
+    return;
+  }
+  
+  const submitEl = document.getElementById('btn-auth-submit');
+  const originalText = submitEl.innerText;
+  submitEl.disabled = true;
+  submitEl.innerText = authMode === 'login' ? '로그인 중...' : '회원가입 중...';
+  
+  try {
+    if (supabaseClient) {
+      if (authMode === 'login') {
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        currentUser = data.user;
+      } else {
+        const { data, error } = await supabaseClient.auth.signUp({ email, password });
+        if (error) throw error;
+        currentUser = data.user;
+        
+        if (data.user && data.session === null) {
+          alert('회원가입이 완료되었습니다! 인증 메일이 발송되었을 수 있으니 이메일을 확인하거나 즉시 로그인 해보세요.');
+          closeAuthModal();
+          return;
+        }
+      }
+    } else {
+      currentUser = { email: email, id: 'mock-user-' + Math.random().toString(36).substr(2, 9) };
+      localStorage.setItem('rankify_mock_user', JSON.stringify(currentUser));
+    }
+    
+    updateAuthUI(currentUser);
+    closeAuthModal();
+  } catch (err) {
+    errorEl.innerText = err.message || '인증에 실패했습니다.';
+    errorEl.style.display = 'block';
+  } finally {
+    submitEl.disabled = false;
+    submitEl.innerText = originalText;
+  }
+};
+
+window.handleAuthClick = function() {
+  if (currentUser) {
+    if (confirm('로그아웃 하시겠습니까?')) {
+      handleLogout();
+    }
+  } else {
+    openAuthModal();
+  }
+};
+
+window.handleLogout = async function() {
+  if (supabaseClient) {
+    await supabaseClient.auth.signOut();
+  } else {
+    localStorage.removeItem('rankify_mock_user');
+  }
+  currentUser = null;
+  updateAuthUI(null);
+};
+
+function updateAuthUI(user) {
+  const authBtnTextEl = document.getElementById('auth-btn-text');
+  const authIconEl = document.getElementById('auth-icon');
+  const authBtnEl = document.getElementById('btn-auth');
+  
+  if (!authBtnTextEl || !authIconEl || !authBtnEl) return;
+  
+  if (user) {
+    const shortEmail = user.email.split('@')[0];
+    authBtnTextEl.innerText = `${shortEmail} (로그아웃)`;
+    authIconEl.className = 'fa-solid fa-sign-out-alt';
+    authBtnEl.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+    authBtnEl.style.color = 'var(--error-solid)';
+  } else {
+    authBtnTextEl.innerText = '로그인';
+    authIconEl.className = 'fa-solid fa-user';
+    authBtnEl.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+    authBtnEl.style.color = 'var(--text-secondary)';
+  }
+}
