@@ -1,5 +1,18 @@
 // Rankify Main Application Controller
 
+// ==========================================
+// Supabase Configuration
+// ==========================================
+// 회원님의 Supabase URL과 Anon Key를 입력해 주세요.
+// 비어 있을 경우 자동으로 로컬 data.js의 Mock 데이터 모드로 작동합니다.
+const SUPABASE_URL = 'https://fwuvrwxynplwnunzzwoh.supabase.co'; 
+const SUPABASE_ANON_KEY = 'sb_publishable_ffEZQoJlkNq-MuLZTDr6PA_d2Ycj6LF';
+
+let supabaseClient = null;
+if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
+
 // State
 let countries = []; // Holds the active dataset (global countries, KR regions, KR apartments, or escapes)
 let currentScope = 'global'; // 'global', 'korea', 'apartment', or 'escape'
@@ -21,7 +34,7 @@ let rankingsListEl, searchInputEl, listDescriptionEl, compareStickyBarEl, compar
 let viewExploreLayoutEl, viewCompareLayoutEl, sidebarControlsEl, weightSlidersSectionEl, categorySidebarSectionEl;
 
 // Initialize on DOM Load
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   // Cache DOM element references
   rankingsListEl = document.getElementById('rankings-list');
   searchInputEl = document.getElementById('search-input');
@@ -37,7 +50,10 @@ window.addEventListener('DOMContentLoaded', () => {
   categorySidebarSectionEl = document.getElementById('category-sidebar-section');
   
   // Load initial dataset (global scope default)
-  loadDataset('global');
+  await loadDataset('global');
+  
+  // Initialize apartment prices
+  window.initApartmentPrices();
   
   // Render initial list
   renderRankings();
@@ -47,9 +63,54 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 // Load dataset according to scope (global, korea, apartment, escape)
-function loadDataset(scope) {
+async function loadDataset(scope) {
   currentScope = scope;
   
+  // Supabase DB 연동 모드
+  if (supabaseClient) {
+    try {
+      const dbScope = scope;
+      const { data, error } = await supabaseClient
+        .from('rankify_items')
+        .select('*')
+        .eq('category', dbScope);
+        
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        countries = data.map(item => {
+          const mapped = {
+            id: item.id,
+            name: item.name,
+            koreanName: item.korean_name,
+            flag: item.flag,
+            description: item.description,
+            funFact: item.fun_fact,
+            metrics: item.metrics,
+            votes: {
+              upvotes: item.upvotes,
+              downvotes: item.downvotes
+            }
+          };
+          if (item.specs) {
+            Object.assign(mapped, item.specs);
+          }
+          return mapped;
+        });
+        
+        // Load vote history from localStorage for local tracking
+        const savedVotes = localStorage.getItem(`rankify_votes_${scope}`);
+        voteHistory = savedVotes ? JSON.parse(savedVotes) : {};
+        
+        initializeRanks();
+        return;
+      }
+    } catch (err) {
+      console.error("Supabase 데이터 로드 실패. 로컬 Mock 데이터로 대체합니다:", err);
+    }
+  }
+  
+  // Fallback: Supabase 미설정 시 기존 Mock 데이터 로드
   if (scope === 'global') {
     countries = JSON.parse(JSON.stringify(window.RANKIFY_DATA));
     
@@ -151,7 +212,7 @@ function initializeRanks() {
 }
 
 // Switch between global, korea, apartment, and escape modes
-window.switchScope = function(scope) {
+window.switchScope = async function(scope) {
   if (currentScope === scope) return;
   
   // Toggle scope button active classes
@@ -171,7 +232,7 @@ window.switchScope = function(scope) {
   resetWeights();
   
   // Load data
-  loadDataset(scope);
+  await loadDataset(scope);
   
   // Update Labels in DOM
   const colHeaderName = document.getElementById('col-header-name');
@@ -890,6 +951,30 @@ function renderRankings() {
                 <div style="font-size: 13px;"><span style="color: var(--text-secondary); width: 100px; display: inline-block;">국내 구매 혜택:</span> <strong style="color: var(--primary-solid);">${item.specs?.benefits || ''}</strong></div>
               </div>
             ` : ''}
+            
+            ${currentScope === 'apartment' ? `
+              <div class="specs-box" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 14px; margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+                <div style="font-size: 13px;">
+                  <span style="color: var(--text-secondary); width: 130px; display: inline-block;">실거래가 연동 상태:</span> 
+                  <strong style="color: ${realPrices[item.id]?.isLive ? 'var(--green-solid)' : 'var(--warning-solid)'};">
+                    ${realPrices[item.id]?.isLive ? '● 공공데이터포털 실시간 연동 완료' : '⚠ 시뮬레이션 가격 작동 중 (설정 필요)'}
+                  </strong>
+                </div>
+                <div style="font-size: 13px;"><span style="color: var(--text-secondary); width: 130px; display: inline-block;">최근 3개월 평균가:</span> <strong style="color: var(--primary-solid);">${realPrices[item.id]?.avgPrice}억 원 (${item.pyeongSize}평형)</strong></div>
+                <div style="font-size: 13px;"><span style="color: var(--text-secondary); width: 130px; display: inline-block;">평당 매매단가:</span> <strong>약 ${realPrices[item.id]?.pyeongPrice.toLocaleString()}만 원 / 평</strong></div>
+                <div style="font-size: 13px;">
+                  <span style="color: var(--text-secondary); width: 130px; display: inline-block;">최근 3개월 가격 추이:</span> 
+                  <strong>
+                    ${realPrices[item.id]?.trend[0]}억 ➔ 
+                    ${realPrices[item.id]?.trend[1]}억 ➔ 
+                    <span style="color: ${realPrices[item.id]?.trend[2] >= realPrices[item.id]?.trend[1] ? 'var(--green-solid)' : 'var(--danger-solid)'}; font-weight: 700;">
+                      ${realPrices[item.id]?.trend[2]}억
+                      ${realPrices[item.id]?.trend[2] > realPrices[item.id]?.trend[1] ? '▲' : (realPrices[item.id]?.trend[2] < realPrices[item.id]?.trend[1] ? '▼' : '―')}
+                    </span>
+                  </strong>
+                </div>
+              </div>
+            ` : ''}
 
             <div class="fun-fact-box" style="margin-top: 10px;">
               <strong>${currentScope === 'car' ? '💡 구매 가이드 및 국내 실차주 TMI' : '💡 7~8월 날씨 쾌적도 & 체류 라이프 상식'}</strong>
@@ -1134,6 +1219,20 @@ function renderCompareView() {
             <div class="compare-bar-track"><div class="compare-bar-fill" style="width: ${item.metrics.assetValue}%"></div></div>
           </div>
         </div>
+
+        <!-- Real Price Compare -->
+        <div class="compare-metric-group" style="border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 12px; margin-top: 12px;">
+          <div class="compare-group-title"><i class="fa-solid fa-won-sign" style="color: var(--primary-solid);"></i> 최근 실거래 비교 (${item.pyeongSize}평형)</div>
+          <div style="font-size: 13px; margin-bottom: 8px;">
+            <span style="color: var(--text-secondary); width: 100px; display: inline-block;">3개월 평균가:</span> <strong style="color: var(--primary-solid);">${realPrices[item.id]?.avgPrice}억 원</strong>
+          </div>
+          <div style="font-size: 13px; margin-bottom: 8px;">
+            <span style="color: var(--text-secondary); width: 100px; display: inline-block;">평당 단가:</span> <strong>약 ${realPrices[item.id]?.pyeongPrice.toLocaleString()}만 원 / 평</strong>
+          </div>
+          <div style="font-size: 13px;">
+            <span style="color: var(--text-secondary); width: 100px; display: inline-block;">연동 정보:</span> <strong>${realPrices[item.id]?.isLive ? '국토부 실시간' : '시뮬레이션 데이터'}</strong>
+          </div>
+        </div>
       `;
     } else if (currentScope === 'escape') { // escape comparison
       compareContentHTML = `
@@ -1306,4 +1405,244 @@ window.castVote = function(itemId, type) {
   }
   
   renderRankings();
+};
+
+// ==========================================
+// Real Estate MOLIT API Integration
+// ==========================================
+
+let apiKey = localStorage.getItem('rankify_api_key') || '';
+let realPrices = {};
+
+const APT_BASE_PRICES = {
+  'acro-river-park': 43.0,
+  'apgujeong-hyundai': 48.0,
+  'raemian-one-bailey': 44.0,
+  'hannam-the-hill': 85.0,
+  'eunma': 26.0,
+  'helio-city': 20.0,
+  'mapo-raemian-purigio': 17.5,
+  'banpo-jugong-1': 55.0,
+  'trimage': 38.0,
+  'acro-seoul-forest': 65.0,
+  'gyeonghuigung-xi': 19.5,
+  'gaepo-dh-firstier': 28.0,
+  'mapo-taeyoung': 15.0,
+  'shinheung-haneulchae': 10.2,
+  'daelim-gangbyeon': 13.0
+};
+
+window.initApartmentPrices = function() {
+  window.RANKIFY_APARTMENTS_DATA.forEach(apt => {
+    const base = APT_BASE_PRICES[apt.id] || 15.0;
+    const m1 = base - 0.3;
+    const m2 = base;
+    const m3 = base + 0.2;
+    const avg = (m1 + m2 + m3) / 3;
+    const pyeongPrice = (avg * 10000) / apt.pyeongSize;
+    realPrices[apt.id] = {
+      avgPrice: Math.round(avg * 100) / 100,
+      pyeongPrice: Math.round(pyeongPrice),
+      trend: [Math.round(m1*100)/100, Math.round(m2*100)/100, Math.round(m3*100)/100],
+      isLive: false
+    };
+  });
+
+  if (apiKey) {
+    loadLiveApartmentPrices();
+  }
+};
+
+async function loadLiveApartmentPrices() {
+  const lawdCds = [...new Set(window.RANKIFY_APARTMENTS_DATA.map(a => a.lawdCd))];
+  const months = [];
+  const now = new Date();
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    months.push(`${yyyy}${mm}`);
+  }
+
+  const fetchPromises = [];
+  lawdCds.forEach(lawdCd => {
+    months.forEach(month => {
+      const targetUrl = `https://apis.data.go.kr/1613000/RTMSOBJSvc/getRTMSDataSvcAptTradeDev?serviceKey=${apiKey}&LAWD_CD=${lawdCd}&DEAL_YMD=${month}&_type=json`;
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+      
+      const p = fetch(proxyUrl)
+        .then(res => res.text())
+        .then(text => parseAptData(text, lawdCd, month))
+        .catch(err => {
+          console.error(`Failed to fetch for LAWD_CD ${lawdCd}, Month ${month}:`, err);
+          return [];
+        });
+      fetchPromises.push(p);
+    });
+  });
+
+  try {
+    const results = await Promise.all(fetchPromises);
+    const allTransactions = results.flat();
+    
+    window.RANKIFY_APARTMENTS_DATA.forEach(apt => {
+      const matched = allTransactions.filter(t => {
+        return t.lawdCd === apt.lawdCd && t.aptName.includes(apt.apiAptName);
+      });
+
+      if (matched.length > 0) {
+        const monthlyPrices = {};
+        months.forEach(m => monthlyPrices[m] = []);
+        
+        matched.forEach(t => {
+          if (monthlyPrices[t.month]) {
+            monthlyPrices[t.month].push(t.price);
+          }
+        });
+
+        const trend = months.map(m => {
+          const prices = monthlyPrices[m];
+          if (prices.length > 0) {
+            return Math.round((prices.reduce((a, b) => a + b, 0) / prices.length) * 10) / 10;
+          }
+          return null;
+        });
+
+        const allMatchedPrices = matched.map(t => t.price);
+        const avg = allMatchedPrices.reduce((a, b) => a + b, 0) / allMatchedPrices.length;
+        const avgInEok = avg / 10000;
+        const pyeongPrice = (avgInEok * 10000) / apt.pyeongSize;
+
+        let lastKnownPrice = avgInEok;
+        const cleanTrend = trend.map(val => {
+          if (val !== null) {
+            lastKnownPrice = val / 10000;
+          }
+          return Math.round(lastKnownPrice * 100) / 100;
+        });
+
+        realPrices[apt.id] = {
+          avgPrice: Math.round(avgInEok * 100) / 100,
+          pyeongPrice: Math.round(pyeongPrice),
+          trend: cleanTrend,
+          isLive: true
+        };
+      }
+    });
+
+    if (currentScope === 'apartment') {
+      renderRankings();
+    }
+  } catch (err) {
+    console.error("Failed to compile live API prices:", err);
+  }
+}
+
+function parseAptData(text, lawdCd, month) {
+  const list = [];
+  if (!text || text.trim() === '') return list;
+
+  try {
+    if (text.trim().startsWith('<')) {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(text, 'text/xml');
+      const items = xmlDoc.getElementsByTagName('item');
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const aptName = item.getElementsByTagName('apartmentLndgNm')[0]?.textContent || item.getElementsByTagName('아파트')[0]?.textContent || '';
+        const priceStr = item.getElementsByTagName('dealAmount')[0]?.textContent || item.getElementsByTagName('거래금액')[0]?.textContent || '0';
+        const price = parseInt(priceStr.replace(/,/g, '').trim());
+        list.push({ lawdCd, month, aptName, price });
+      }
+    } else {
+      const data = JSON.parse(text);
+      const items = data.response?.body?.items?.item || [];
+      const itemArray = Array.isArray(items) ? items : [items];
+      itemArray.forEach(item => {
+        if (item) {
+          const aptName = item.apartmentLndgNm || item.아파트 || '';
+          const priceStr = String(item.dealAmount || item.거래금액 || '0');
+          const price = parseInt(priceStr.replace(/,/g, '').trim());
+          list.push({ lawdCd, month, aptName, price });
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Error parsing response text:', err);
+  }
+  return list;
+}
+
+window.openApiModal = function() {
+  document.getElementById('api-modal').style.display = 'flex';
+  document.getElementById('api-key-input').value = apiKey;
+  updateApiModalStatus();
+};
+
+window.closeApiModal = function() {
+  document.getElementById('api-modal').style.display = 'none';
+};
+
+window.saveApiKey = function() {
+  const inputKey = document.getElementById('api-key-input').value.trim();
+  apiKey = inputKey;
+  localStorage.setItem('rankify_api_key', apiKey);
+  window.initApartmentPrices();
+  window.closeApiModal();
+  alert('API 설정이 저장되었습니다. 아파트 탭에서 실거래가 조회를 시작합니다.');
+};
+
+function updateApiModalStatus() {
+  const statusEl = document.getElementById('api-test-status');
+  if (apiKey) {
+    statusEl.textContent = '연동 상태: 설정 완료 (인증키 저장됨)';
+    statusEl.style.color = 'var(--green-solid)';
+  } else {
+    statusEl.textContent = '연동 상태: 미연동 (시뮬레이션 가격 데이터 작동 중)';
+    statusEl.style.color = 'var(--warning-solid)';
+  }
+}
+
+window.testApiKey = function() {
+  const inputKey = document.getElementById('api-key-input').value.trim();
+  if (!inputKey) {
+    alert('인증키를 입력해주세요.');
+    return;
+  }
+
+  const statusEl = document.getElementById('api-test-status');
+  statusEl.textContent = '연동 테스트 진행 중...';
+  statusEl.style.color = 'var(--text-secondary)';
+
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const month = `${yyyy}${mm}`;
+
+  const targetUrl = `https://apis.data.go.kr/1613000/RTMSOBJSvc/getRTMSDataSvcAptTradeDev?serviceKey=${inputKey}&LAWD_CD=11440&DEAL_YMD=${month}&_type=json`;
+  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+
+  fetch(proxyUrl)
+    .then(res => res.text())
+    .then(text => {
+      if (text.includes('SERVICE_KEY_IS_NOT_REGISTERED_ERROR') || text.includes('SERVICE KEY IS NOT REGISTERED')) {
+        statusEl.textContent = '연동 실패: 등록되지 않은 서비스 키입니다. (공공데이터포털 승인 대기 확인 필요)';
+        statusEl.style.color = 'var(--danger-solid)';
+      } else if (text.includes('OpenAPI_ServiceResponse') && text.includes('<errMsg>')) {
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(text, 'text/xml');
+        const errMsg = xml.getElementsByTagName('errMsg')[0]?.textContent || '상세 알 수 없음';
+        statusEl.textContent = `연동 실패: ${errMsg}`;
+        statusEl.style.color = 'var(--danger-solid)';
+      } else {
+        statusEl.textContent = '연동 성공: 정상적으로 연결되었습니다!';
+        statusEl.style.color = 'var(--green-solid)';
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      statusEl.textContent = '연동 실패: 네트워크 또는 프록시 서버 에러입니다.';
+      statusEl.style.color = 'var(--danger-solid)';
+    });
 };
